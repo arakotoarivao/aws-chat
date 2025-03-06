@@ -11,7 +11,7 @@ phases:
   build:
     commands:
       - echo "Building the Angular app..."
-      - npm run build --prefix ./app -- configuration production
+      - npm run build --prefix ./app --configuration production
 
   post_build:
     commands:
