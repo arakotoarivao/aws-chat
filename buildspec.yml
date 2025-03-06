@@ -15,11 +15,17 @@ phases:
 
   post_build:
     commands:
-      - echo "Packaging the build artifacts..."
-      - mkdir -p deploy
-      - tar -czf deploy/app.tar.gz -C app/dist/aws-chat .  
-      - echo "Creating deployment artifacts..."
-      - echo "Build completed on `date`" > deploy/deployment-info.txt  
+      - echo "Checking if build directory exists..."
+      - ls -la app/dist/ 
+      - ls -la app/dist/aws-chat/ || echo "Warning: app/dist/aws-chat/ does not exist!"
+      - if [ -d "app/dist/aws-chat" ] && [ "$(ls -A app/dist/aws-chat)" ]; then
+          echo "Build directory found, proceeding to package...";
+          mkdir -p deploy;
+          tar -czf deploy/app.tar.gz -C app/dist/aws-chat .;
+        else
+          echo "ERROR: Build directory app/dist/aws-chat/ is missing or empty! Aborting.";
+          exit 1;
+        fi 
 
 artifacts:
   files:
