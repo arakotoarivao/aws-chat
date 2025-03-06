@@ -17,7 +17,7 @@ phases:
     commands:
       - echo "Packaging the build artifacts..."
       - mkdir -p deploy
-      - tar -czf deploy/app.tar.gz -C ./dist/aws-chat.  
+      - tar -czf deploy/app.tar.gz -C app/dist/aws-chat .  
       - echo "Creating deployment artifacts..."
       - echo "Build completed on `date`" > deploy/deployment-info.txt  
 
