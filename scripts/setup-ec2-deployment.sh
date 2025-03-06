@@ -19,8 +19,9 @@ sudo systemctl start nginx
 sudo systemctl enable nginx
 
 echo "Installing Node.js..."
-curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo yum install -y nsolid
+sudo yum install nodejs22
 
 echo "Installing Angular CLI..."
 sudo npm install -g @angular/cli
