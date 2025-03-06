@@ -3,7 +3,7 @@
 sudo yum update -y 
 
 echo "Installing AWS CodeDeploy Agent..."
-sudo yum install ruby -y  # For Amazon Linux
+sudo yum install ruby -y 
 
 wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
 chmod +x ./install
@@ -19,8 +19,8 @@ sudo systemctl start nginx
 sudo systemctl enable nginx
 
 echo "Installing Node.js..."
-curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
-sudo yum install -y nodejs  # For Amazon Linux
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+sudo yum install -y nsolid
 
 echo "Installing Angular CLI..."
 sudo npm install -g @angular/cli

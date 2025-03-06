@@ -1,0 +1,31 @@
+version: 1.0
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20.x
+    commands:
+      - echo "Installing dependencies..."
+      - npm install 
+
+  build:
+    commands:
+      - echo "Building the Angular app..."
+      - npm run build -- configuration production
+
+  post_build:
+    commands:
+      - echo "Packaging the build artifacts..."
+      - mkdir -p deploy
+      - tar -czf deploy/app.tar.gz -C ./dist/aws-chat.  
+      - echo "Creating deployment artifacts..."
+      - echo "Build completed on `date`" > deploy/deployment-info.txt  
+
+artifacts:
+  files:
+    - 'deploy/**/*' 
+  discard-paths: yes 
+
+cache:
+  paths:
+    - node_modules/**/*  
