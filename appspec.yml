@@ -3,7 +3,7 @@ os: linux
 
 files:
   - source: /             
-    destination: /var/www/aws-chat
+    destination: /var/www/html/aws-chat
 
 hooks:
   BeforeInstall:
