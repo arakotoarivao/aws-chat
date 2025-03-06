@@ -3,7 +3,7 @@ version: 1.0
 phases:
   install:
     runtime-versions:
-      nodejs: 20.x
+      nodejs: 22
     commands:
       - echo "Installing dependencies..."
       - npm install 
