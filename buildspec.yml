@@ -17,15 +17,16 @@ phases:
     commands:
       - echo "Packaging the build artifacts..."
       - mkdir -p deploy
-      - tar -czf deploy/app.tar.gz -C app/dist/app/ .  
+      - zip -r deploy/app.zip app/dist/app/
+      - ls -al deploy
       - echo "Creating deployment artifacts..."
       - echo "Build completed on `date`" > deploy/deployment-info.txt  
 
 artifacts:
   files:
-    - 'deploy/**/*' 
+    - 'deploy/app.zip' 
   discard-paths: yes 
 
 cache:
   paths:
-    - node_modules/**/*  
+    - app/node_modules/**/*  
