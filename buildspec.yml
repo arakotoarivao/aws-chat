@@ -18,9 +18,8 @@ phases:
       - echo "Packaging the build artifacts..."
       - mkdir -p deploy
       - zip -r deploy/app.zip app/dist/app/
-      - ls -al deploy
+      - ls -l deploy
       - echo "Creating deployment artifacts..."
-      - echo "Build completed on `date`" > deploy/deployment-info.txt  
 
 artifacts:
   files:
