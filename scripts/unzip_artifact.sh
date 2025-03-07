@@ -2,12 +2,13 @@
 sudo systemctl stop nginx
 
 folder="/var/www/aws-chat/"
-ls -l
-ls -l $folder
-
 latest_deployment=$(ls -t /opt/codedeploy-agent/deployment-root/ | head -n 1)
 
 cd /opt/codedeploy-agent/deployment-root/$latest_deployment/ || exit 1
+
+echo "Deployment root: /opt/codedeploy-agent/deployment-root/$latest_deployment/"
+echo "Current directory: $(pwd)"
+echo "Current files:"
 
 ls -l
 
