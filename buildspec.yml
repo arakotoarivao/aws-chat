@@ -19,7 +19,7 @@ phases:
       - mkdir -p deploy
       - zip -r deploy/app.zip app/dist/app/
       - ls -l deploy
-      - echo "Creating deployment artifacts..."
+      - echo "Creating deployment artifacts for S3..."
 
 artifacts:
   files:
