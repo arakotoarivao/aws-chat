@@ -23,7 +23,7 @@ phases:
 
 artifacts:
   files:
-    - 'deploy/app.zip' 
+    - 'deploy/**/*' 
   discard-paths: yes 
 
 cache:
