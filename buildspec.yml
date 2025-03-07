@@ -17,12 +17,14 @@ phases:
     commands:
       - echo "Packaging the build artifacts..."
       - ls -l
-      - zip -r artifact.zip app/dist/app/*
+      - cd app/dist/app/browser
+      - zip -r artifact.zip *
       - echo "Creating deployment artifacts to S3..."
+      - cd ../../../..
 
 artifacts:
   files:
-    - 'artifact.zip' 
+    - 'app/dist/app/browser/artifact.zip' 
     - 'appspec.yml'
     - 'scripts/start_server.sh'
     - 'scripts/unzip_artifact.sh'
