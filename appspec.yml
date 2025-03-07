@@ -7,7 +7,7 @@ files:
 
 hooks:
   BeforeInstall:
-    - location: stop_server.sh
+    - location: unzip_artifact.sh
       timeout: 60
   AfterInstall:
     - location: start_server.sh

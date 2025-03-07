@@ -25,7 +25,7 @@ artifacts:
     - 'artifact.zip' 
     - 'appspec.yml'
     - 'scripts/start_server.sh'
-    - 'scripts/stop_server.sh'
+    - 'scripts/unzip_artifact.sh'
     - 'scripts/restart_server.sh'
     - 'scripts/validate_service.sh'
   discard-paths: yes 
