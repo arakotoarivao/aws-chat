@@ -1,5 +1,5 @@
 #!/bin/bash
-if curl -s http://localhost:4200 | grep "Aws chat"; then
+if curl -s http://localhost | grep "AWS chat"; then
   echo "Validation successful: The app is running."
   exit 0
 else
