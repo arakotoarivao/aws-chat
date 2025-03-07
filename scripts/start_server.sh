@@ -1,7 +1,14 @@
 #!/bin/bash
 sudo systemctl start nginx
 
-cd /var/www/aws-chat
-echo $pwd
+if [ -f artifact.zip ]; then
+    echo "Unzipping artifact.zip..."
+  
+    sudo unzip -o artifact.zip -d /var/www/aws-chat || exit 1
+    sudo rm artifact.zip
 
-ls -l
+    echo "Unzipping finished..."
+else
+  echo "artifact.zip not found!"
+  exit 1
+fi
