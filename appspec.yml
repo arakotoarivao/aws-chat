@@ -1,6 +1,10 @@
 version: 0.0 
 os: linux 
 
+files:
+  - source: /dist             
+    destination: /var/www/aws-chat
+
 hooks:
   BeforeInstall:
     - location: unzip_artifact.sh
