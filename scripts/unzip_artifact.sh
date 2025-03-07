@@ -1,5 +1,5 @@
 #!/bin/bash
-ls-l
+ls -l
 unzip -o artifact.zip -d /var/www/aws-chat
 
 chown -R nginx:nginx /var/www/aws-chat
