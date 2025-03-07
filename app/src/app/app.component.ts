@@ -18,7 +18,7 @@ export class AppComponent {
 	@ViewChild('chatMessages') private chatMessagesContainer!: ElementRef
 
 	constructor() {
-		this.messages.push({ sender: 'bot', text: 'Hello! How can I assist you today?' })
+		this.messages.push({ sender: 'bot', text: 'Hello.' })
 	}
 
 	sendMessage() {
