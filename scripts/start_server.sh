@@ -1,6 +1,4 @@
 #!/bin/bash
-sudo systemctl start nginx
-
 cd /var/www/aws-chat
 
 if [ -f artifact.zip ]; then
@@ -14,3 +12,5 @@ else
   echo "artifact.zip not found!"
   exit 1
 fi
+
+sudo systemctl start nginx
