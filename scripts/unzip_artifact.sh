@@ -8,6 +8,9 @@ cd /opt/codedeploy-agent/deployment-root/$ongoing_deployment/ || exit 1
 
 latest_deployment=$(ls -t $pwd | head -n 1)
 
+file $latest_deployment
+sudo unzip -l $latest_deployment
+sudo unzip -l $latest_deployment/artifact.zip
 cd $latest_deployment || exit 1
 
 ls -l
