@@ -17,6 +17,7 @@ phases:
     commands:
       - echo "Packaging the build artifacts..."
       - mkdir -p deploy
+      - ls -l
       - zip -r deploy/app.zip app/dist/app/
       - ls -l deploy
       - echo "Creating deployment artifacts to S3..."
