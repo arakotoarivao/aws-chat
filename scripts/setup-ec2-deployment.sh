@@ -38,6 +38,8 @@ http {
     include /etc/nginx/mime.types;
 
     server {
+        listen 80;
+        listen [::] 80;
         root /var/www/aws-chat;
         index index.html;
 
