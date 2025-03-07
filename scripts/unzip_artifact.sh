@@ -6,11 +6,10 @@ latest_deployment=$(ls -t /opt/codedeploy-agent/deployment-root/ | head -n 1)
 
 cd /opt/codedeploy-agent/deployment-root/$latest_deployment/ || exit 1
 
-echo "Deployment root: /opt/codedeploy-agent/deployment-root/$latest_deployment/"
 echo "Current directory: $(pwd)"
 echo "Current files:"
 
-ls -l
+ls -R
 
 if [ -f artifact.zip ]; then
   echo "Unzipping artifact.zip..."
