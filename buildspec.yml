@@ -30,7 +30,6 @@ artifacts:
     - 'scripts/stop_server.sh'
     - 'scripts/restart_server.sh'
     - 'scripts/validate_service.sh'
-  base-directory: 'dist'
   discard-paths: yes 
 
 cache:
