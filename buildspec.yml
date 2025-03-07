@@ -17,14 +17,13 @@ phases:
     commands:
       - echo "Packaging the build artifacts..."
       - mkdir -p deploy
-      # - zip -r deploy/app.zip app/dist/app/
-      - ls -l app/dist/app/
-      - cp -r app/dist/app/* deploy/
-      - echo "Creating deployment artifacts for S3..."
+      - zip -r deploy/app.zip app/dist/app/
+      - ls -l deploy
+      - echo "Creating deployment artifacts to S3..."
 
 artifacts:
   files:
-    - 'deploy/**/*' 
+    - 'deploy/app.zip' 
   discard-paths: yes 
 
 cache:

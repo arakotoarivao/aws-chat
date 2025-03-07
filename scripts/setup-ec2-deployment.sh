@@ -32,14 +32,18 @@ sudo chown -R ec2-user:ec2-user /var/www/aws-chat
 
 echo "Configuring Nginx..."
 sudo tee /etc/nginx/nginx.conf > /dev/null <<EOL
-server {
-    listen 80;
-    server_name _;
+events{}
 
-    location / {
+http {
+    include /etc/nginx/mime.types;
+
+    server {
         root /var/www/aws-chat;
         index index.html;
-        try_files \$uri \$uri/ /index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
     }
 }
 EOL
