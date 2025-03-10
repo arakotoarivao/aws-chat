@@ -20,4 +20,9 @@ describe('AppComponent', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('should have a title', () => {
+    const appTitle = component.title; 
+    expect(appTitle).toBe('aws-chat-app');
+  });
 });

@@ -11,7 +11,7 @@ import { RouterOutlet } from '@angular/router'
   styleUrl: './app.component.css'
 })
 export class AppComponent {
-  	title = 'app'
+  	title = 'aws-chat-app'
   	messages: { sender: string, text: string }[] = []
   	newMessage: string = ''
 
