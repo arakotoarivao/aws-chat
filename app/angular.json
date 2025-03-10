@@ -75,7 +75,6 @@
           "builder": "@angular-devkit/build-angular:karma",
           "options": {
             "browsers": "ChromeHeadlessNoSandbox",
-            "watch": false,
             "polyfills": [
               "zone.js",
               "zone.js/testing"
