@@ -11,4 +11,4 @@ phases:
   build:
     commands:
       - echo "Building the Angular app..."
-      - npm run test --prefix app -- --watch=false --browsers=ChromeHeadless
+      - npm --prefix app run test --watch=false
