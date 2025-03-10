@@ -5,8 +5,10 @@ phases:
     runtime-versions:
       dotnet: 8.0
     commands:
+      - echo "Setting up environment..."
+      - export HOME=/root 
+      - export DOTNET_CLI_HOME=/root
       - echo "Installing dependencies..."
-      - ls -l
       - dotnet restore server.Tests
 
   build:
