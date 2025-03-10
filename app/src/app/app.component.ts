@@ -15,6 +15,7 @@ export class AppComponent {
   	messages: { sender: string, text: string }[] = []
   	newMessage: string = ''
 
+	
 	@ViewChild('chatMessages') private chatMessagesContainer!: ElementRef
 
 	constructor() {
