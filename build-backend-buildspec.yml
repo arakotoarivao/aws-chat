@@ -11,14 +11,16 @@ phases:
   build:
     commands:
       - echo Building the .NET Lambda function...
-      - dotnet build --configuration Release
+      - dotnet build server --configuration Release
 
   post_build:
     commands:
       - echo Publishing the Lambda function...
-      - dotnet publish --configuration Release --output ./publish
+      - dotnet publish server --configuration Release --output ./publish
+      - echo "Zipping artifact..."
+      - zip -r server.zip ./publish
 
 artifacts:
   files:
-    - '**/*'
-  base-directory: 'publish'
+    - server.zip
+  discard-paths: yes
