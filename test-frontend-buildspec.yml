@@ -11,4 +11,4 @@ phases:
   build:
     commands:
       - echo "Building the Angular app..."
-      - npm --prefix app run test --watch=false
+      - npm --prefix app run test
