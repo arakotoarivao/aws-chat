@@ -1,0 +1,14 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - echo "Installing dependencies..."
+      - npm install --prefix app
+
+  build:
+    commands:
+      - echo "Building the Angular app..."
+      - npm run test --prefix app -- --watch=false --browsers=ChromeHeadless

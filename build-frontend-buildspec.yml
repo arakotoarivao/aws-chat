@@ -1,0 +1,37 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - echo "Installing dependencies..."
+      - npm install --prefix app
+
+  build:
+    commands:
+      - echo "Building the Angular app..."
+      - npm --prefix app run build --configuration=production
+
+  post_build:
+    commands:
+      - echo "Packaging the build artifacts..."
+      - ls -l
+      - cd app/dist/app/browser
+      - zip -r artifact.zip *
+      - echo "Creating deployment artifacts to S3..."
+      - cd ../../../..
+
+artifacts:
+  files:
+    - 'app/dist/app/browser/artifact.zip' 
+    - 'appspec.yml'
+    - 'scripts/start_server.sh'
+    - 'scripts/stop_server.sh'
+    - 'scripts/restart_server.sh'
+    - 'scripts/validate_service.sh'
+  discard-paths: yes 
+
+cache:
+  paths:
+    - app/node_modules/**/*  
