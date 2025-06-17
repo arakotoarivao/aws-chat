@@ -1,0 +1,773 @@
+using System.Reflection;
+using custom-mediator.Database;
+using custom-mediator.Infrastructure.Request;
+
+namespace custom-mediator.Extensions;
+
+public static class ServiceCollectionExtension
+{
+    public static void AddApplicationHealthChecks(this IServiceCollection services)
+    {
+        services.AddHealthChecks().AddDbContextCheck<RadarDbContext>("radar_health_check");
+    }
+
+    public static IServiceCollection AddRequestHandlers(
+        this IServiceCollection services,
+        params Assembly[] assemblys
+    )
+    {
+        if (assemblys == null || assemblys.Length == 0)
+            throw new ArgumentNullException(
+                nameof(assemblys),
+                "No assembly was provided to scan request handlers."
+            );
+
+        services.AddSingleton<IRequestBus, RequestBus>();
+
+        var handlerInterfaceTypes = new[] { typeof(IRequestHandler<,>), typeof(IRequestHandler<>) };
+
+        var handlerImplementations = assemblys
+            .SelectMany(type => type.GetTypes())
+            .Where(
+                type =>
+                    type.IsClass
+                    && !type.IsAbstract
+                    && type.GetInterfaces()
+                        .Any(
+                            intf =>
+                                intf.IsGenericType
+                                && handlerInterfaceTypes.Contains(intf.GetGenericTypeDefinition())
+                        )
+            )
+            .ToList();
+
+        foreach (var handlerType in handlerImplementations)
+        {
+            var handlers = handlerType
+                .GetInterfaces()
+                .Where(intf => handlerInterfaceTypes.Contains(intf.GetGenericTypeDefinition()))
+                .ToArray();
+
+            foreach (var serviceType in handlers)
+                services.AddTransient(serviceType, handlerType);
+        }
+
+        return services;
+    }
+}
+
+
+
+---------------------------------------------------------------------
+namespace custom-mediator.Extensions;
+
+public static class ServiceProviderExtension
+{
+    public static T GetServiceOrThrow<T>(this IServiceProvider serviceProvider)
+    {
+        var service = serviceProvider.GetService<T>();
+        if (service == null)
+            Throw(typeof(T));
+
+        return service!;
+    }
+
+    static void Throw(Type type) =>
+        throw new InvalidOperationException($"No handler registered for the request: {type}");
+}
+
+-------------------------------------------------------------------------
+namespace custom-mediator.Infrastructure.Request;
+
+public interface IRequestBus
+{
+    Task Handle(IRequest request, CancellationToken cancellationToken = default);
+
+    Task<TResponse> Handle<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public class RequestBus(IServiceProvider serviceProvider) : IRequestBus
+{
+    public async Task<TResponse> Handle<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var requestType = request.GetType();
+        var responseType = typeof(TResponse);
+        var wrapperType = typeof(RequestHandlerWrapper<,>).MakeGenericType(requestType, responseType);
+        var handler = CreateInstance<IRequestHandlerWrapper<TResponse>>(wrapperType);
+
+        return await handler.Handle(request, serviceProvider, cancellationToken);
+    }
+
+    public async Task Handle(IRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var requestType = request.GetType();
+        var wrapperType = typeof(RequestHandlerWrapper<>).MakeGenericType(requestType);
+        var handler = CreateInstance<IRequestHandlerWrapper>(wrapperType);
+
+        await handler.Handle(request, serviceProvider, cancellationToken);
+    }
+
+    static T CreateInstance<T>(Type type)
+    {
+        var instance = Activator.CreateInstance(type);
+        return instance is null
+            ? throw new InvalidOperationException($"Failed to create an instance of the request handler wrapper: {typeof(T)}")
+            : (T)instance;
+    }
+}
+--------------------------------------------------------------------------------------
+namespace custom-mediator.Infrastructure.Request;
+
+public interface IRequest;
+
+public interface IRequest<out TResponse>;
+
+public interface IRequestHandler<in T, TResponse> where T : IRequest<TResponse>
+{
+    Task<TResponse> Handle(T request, CancellationToken cancellationToken = default);
+}
+
+public interface IRequestHandler<in T> where T : IRequest
+{
+    Task Handle(T request, CancellationToken cancellationToken = default);
+}
+
+---------------------------------------------------------------------------------------
+using custom-mediator.Extensions;
+
+namespace custom-mediator.Infrastructure.Request;
+
+public interface IRequestHandlerWrapper<TResponse>
+{
+    Task<TResponse> Handle(
+        IRequest<TResponse> request,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public interface IRequestHandlerWrapper
+{
+    Task Handle(
+        IRequest request,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public class RequestHandlerWrapper<T, TResponse> : IRequestHandlerWrapper<TResponse>
+    where T : IRequest<TResponse>
+{
+    public async Task<TResponse> Handle(
+        IRequest<TResponse> request,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var handler = serviceProvider.GetServiceOrThrow<IRequestHandler<T, TResponse>>();
+        return await handler.Handle((T)request, cancellationToken);
+    }
+}
+
+public class RequestHandlerWrapper<T> : IRequestHandlerWrapper
+    where T : IRequest
+{
+    public async Task Handle(
+        IRequest request,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var handler = serviceProvider.GetServiceOrThrow<IRequestHandler<T>>();
+        await handler.Handle((T)request, cancellationToken);
+    }
+}
+---------------------------------------------------------------------------------------
+using custom-mediator.Extensions;
+
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenApi();
+builder.Services.AddApplicationHealthChecks();
+builder.Services.AddRequestHandlers(typeof(Program).Assembly);
+builder.AddDbContext();
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+else
+{
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.MapEndpoints();
+app.Run();
+
+public partial class Program;
+----------------------------------------------------------------------------------------------
+using System.Reflection;
+using custom-mediator.Extensions;
+using custom-mediator.Infrastructure.Request;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace custom-mediator.UnitTests.Extensions;
+
+public class NotAHandlerClass { }
+
+public class FakeDependency { }
+
+public record GetData : IRequest<string>;
+
+public record PostData : IRequest;
+
+public record MultiRequestString : IRequest<string>;
+
+public record MultiRequestInt : IRequest<int>;
+
+public record DependentRequest : IRequest;
+
+public class GetDataHandler : IRequestHandler<GetData, string>
+{
+    public Task<string> Handle(GetData request, CancellationToken cancellationToken = default) =>
+        Task.FromResult("beautiful response");
+}
+
+public class PostDataHandler : IRequestHandler<PostData>
+{
+    public Task Handle(PostData request, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+}
+
+public abstract class AbstractHandler : IRequestHandler<GetData, string>
+{
+    public abstract Task<string> Handle(
+        GetData request,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public class MultiRequestHandler
+    : IRequestHandler<MultiRequestString, string>,
+        IRequestHandler<MultiRequestInt, int>
+{
+    public Task<string> Handle(
+        MultiRequestString request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        return Task.FromResult("beautiful response");
+    }
+
+    public Task<int> Handle(MultiRequestInt request, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
+}
+
+public class DependentRequestHandler : IRequestHandler<DependentRequest>
+{
+    public DependentRequestHandler(FakeDependency dependency) => dependency.Should().NotBeNull();
+
+    public Task Handle(DependentRequest request, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+}
+
+public class ServiceCollectionExtensionTests
+{
+    [Fact]
+    public void Should_Throw_Exception_If_There_Is_No_Assembly_To_Scan()
+    {
+        var services = new ServiceCollection();
+        Action act = () => services.AddRequestHandlers(null!);
+
+        act.Should()
+            .ThrowExactly<ArgumentNullException>()
+            .WithParameterName("assemblys")
+            .WithMessage(
+                "No assembly was provided to scan request handlers. (Parameter 'assemblys')"
+            );
+    }
+
+    [Fact]
+    public void Should_Throw_Exception_If_Assembly_To_Scan_Is_Empty()
+    {
+        var services = new ServiceCollection();
+        var assemblies = Array.Empty<Assembly>();
+
+        Action act = () => services.AddRequestHandlers(assemblies);
+
+        act.Should()
+            .ThrowExactly<ArgumentNullException>()
+            .WithParameterName("assemblys")
+            .WithMessage(
+                "No assembly was provided to scan request handlers. (Parameter 'assemblys')"
+            );
+    }
+
+    [Fact]
+    public void Should_Register_Nothing_When_Containing_No_Handlers()
+    {
+        var serviceProvider = BuildServiceProvider();
+        var handler = GetService<NotAHandlerClass>(serviceProvider);
+
+        handler.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(typeof(IRequestHandler<GetData, string>), typeof(GetDataHandler))]
+    [InlineData(typeof(IRequestHandler<PostData>), typeof(PostDataHandler))]
+    public void Should_Correctly_Register_Request_Handlers(
+        Type dependencyType,
+        Type expectedHandlerType
+    )
+    {
+        var serviceProvider = BuildServiceProvider();
+        var handler = GetService(serviceProvider, dependencyType);
+
+        handler.Should().NotBeNull();
+        handler.Should().BeOfType(expectedHandlerType);
+    }
+
+    [Theory]
+    [InlineData(typeof(IRequestHandler<GetData, string>))]
+    [InlineData(typeof(IRequestHandler<PostData>))]
+    public void Transient_Request_Handler_Should_Always_Return_New_Instance(Type type)
+    {
+        var serviceProvider = BuildServiceProvider();
+        var handler1 = GetService(serviceProvider, type);
+        var handler2 = GetService(serviceProvider, type);
+
+        handler1.Should().NotBeNull();
+        handler2.Should().NotBeNull();
+
+        handler1.Should().NotBeSameAs(handler2);
+    }
+
+    [Fact]
+    public void Should_Correctly_Register_Handler_With_Dependency_Injection()
+    {
+        var serviceProvider = BuildServiceProvider(sp => sp.AddTransient<FakeDependency>());
+
+        var handler = GetService<IRequestHandler<DependentRequest>>(serviceProvider);
+        handler.Should().NotBeNull();
+        handler.Should().BeOfType<DependentRequestHandler>();
+    }
+
+    [Fact]
+    public void Should_Correctly_Register_Handler_And_Ignore_Abstract_Implementation()
+    {
+        var serviceProvider = BuildServiceProvider();
+        var handlers = serviceProvider.GetServices<IRequestHandler<GetData, string>>();
+
+        handlers.Should().NotBeNullOrEmpty();
+        handlers.Should().NotContain(x => x is AbstractHandler);
+        handlers.Should().ContainSingle(x => x is GetDataHandler);
+    }
+
+    static ServiceProvider BuildServiceProvider(
+        Assembly[] assembliesToScan,
+        Action<IServiceCollection>? act = null
+    )
+    {
+        var services = new ServiceCollection();
+
+        act?.Invoke(services);
+        services.AddRequestHandlers(assembliesToScan);
+        return services.BuildServiceProvider();
+    }
+
+    static ServiceProvider BuildServiceProvider(Action<IServiceCollection>? act = null) =>
+        BuildServiceProvider([typeof(ServiceCollectionExtensionTests).Assembly], act);
+
+    static T GetService<T>(IServiceProvider serviceProvider)
+    {
+        var service = serviceProvider.GetService<T>();
+        return service!;
+    }
+
+    static object? GetService(ServiceProvider serviceProvider, Type type)
+    {
+        var service = serviceProvider.GetService(type);
+        return service;
+    }
+}
+-------------------------------------------------------------------------------------------------------
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace custom-mediator.UnitTests.Extensions;
+
+public class WebApplicationExtensionTests
+{
+    [Fact]
+    public void All_Endpoints_Should_Start_With_Api()
+    {
+        var irrelevantEndpoints = new[] { "openapi" };
+        var endpoints = GetExistingEndpoints()
+            .Where(x => !irrelevantEndpoints.Any(y =>
+                x.Contains(y, StringComparison.OrdinalIgnoreCase)))
+            .Distinct()
+            .ToArray(); ;
+
+        endpoints.Should().NotBeEmpty();
+        endpoints.Should().OnlyContain(x => x.StartsWith("/api"));
+    }
+
+    [Fact]
+    public void Health_Check_Endpoint_Should_Exist() => AssertEndpoint("health");
+
+    [Fact]
+    public void Weather_Forecast_Endpoint_Should_Exist() => AssertEndpoint("weatherForecast");
+
+    [Fact]
+    public void Sector_Policy_Endpoint_Should_Exist() => AssertEndpoint("sectorPolicy");
+
+    [Fact]
+    public void Client_Endpoint_Should_Exist() => AssertEndpoint("client");
+
+    [Fact]
+    public void Country_Endpoint_Should_Exist() => AssertEndpoint("country");
+
+    static void AssertEndpoint(string endpoint)
+    {
+        var endpoints = GetExistingEndpoints();
+        endpoints.Should().Contain($"/api/{endpoint}");
+    }
+
+    static string[] GetExistingEndpoints()
+    {
+        var app = new WebApplicationFactory<Program>();
+        var dataSource = app.Services.GetRequiredService<EndpointDataSource>();
+
+        var endpoints = dataSource
+            .Endpoints
+            .Cast<RouteEndpoint>()
+            .Select(x => x.RoutePattern.RawText!)
+            .ToArray();
+
+        return endpoints;
+    }
+}
+--------------------------------------------------------------------------------------------------------------
+using custom-mediator.Infrastructure.Request;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+
+namespace custom-mediator.UnitTests.Infrastructure.Request;
+
+public record GetSomething(int Id) : IRequest<string>;
+
+public record SaveSomething(object DataToSave) : IRequest;
+
+public class RequestBusTest
+{
+    const string Response = "Awesome response";
+    public readonly GetSomething GetSomethingById = new(1);
+    public readonly SaveSomething SaveSomething = new(new { });
+
+    [Fact]
+    public async Task Should_Handle_Request_To_Corresponding_Handler_Which_Should_Handle_Request()
+    {
+        var handler = GetFakeQueryHandler();
+        var requestBus = GetFakeQueryRequestBus(handler);
+
+        var result = await requestBus.Handle(GetSomethingById);
+
+        await handler.Received(1).Handle(GetSomethingById, default);
+        result.Should().Be(Response);
+    }
+
+    [Fact]
+    public void Should_Throw_Exception_If_No_Handler_Was_Found_For_A_Request()
+    {
+        var requestBus = GetFakeQueryRequestBus();
+
+        Func<Task> act = () => requestBus.Handle(GetSomethingById);
+
+        act.Should().ThrowExactlyAsync<InvalidOperationException>()
+            .WithMessage($"No handler registered for the request: GetSomething.");
+    }
+
+    [Fact]
+    public async Task Should_Handle_Command_To_Corresponding_Handler_When_Specific_Handler_Is_Registered()
+    {
+        var handler = GetFakeCommandHandler();
+        var requestBus = GetFakeCommandRequestBus(handler);
+
+        await requestBus.Handle(SaveSomething);
+        await handler.Received(1).Handle(SaveSomething, default);
+    }
+
+    [Fact]
+    public void Should_Throw_Exception_If_No_Handler_Found_For_A_Command_Matching_Specific_Type()
+    {
+        var requestBus = GetFakeCommandRequestBus();
+
+        Func<Task> act = () => requestBus.Handle(SaveSomething);
+
+        act.Should().ThrowExactlyAsync<InvalidOperationException>()
+            .WithMessage($"No handler registered for the request: SaveSomething.");
+    }
+
+    static IRequestHandler<GetSomething, string> GetFakeQueryHandler()
+    {
+        var handler = Substitute.For<IRequestHandler<GetSomething, string>>();
+        handler.Handle(Arg.Any<GetSomething>(), Arg.Any<CancellationToken>()).Returns(Response);
+
+        return handler;
+    }
+
+    IRequestHandler<SaveSomething> GetFakeCommandHandler()
+    {
+        var handler = Substitute.For<IRequestHandler<SaveSomething>>();
+        handler.Handle(SaveSomething, default).Returns(Task.CompletedTask);
+
+        return handler;
+    }
+
+    static RequestBus GetFakeQueryRequestBus(IRequestHandler<GetSomething, string>? handler = null)
+    {
+        var serviceCollection = new ServiceCollection();
+
+        if (handler != null)
+            serviceCollection.AddTransient(sp => handler);
+
+        return new(serviceCollection.BuildServiceProvider());
+    }
+
+    static RequestBus GetFakeCommandRequestBus(IRequestHandler<SaveSomething>? handler = null)
+    {
+        var serviceCollection = new ServiceCollection();
+
+        if (handler != null)
+            serviceCollection.AddTransient(sp => handler);
+
+        return new(serviceCollection.BuildServiceProvider());
+    }
+}
+------------------------------------------------------------------------------------------------------
+
+
+
+2è commit <-----------------------------------------------------------
+
+using System.Collections.Concurrent;
+
+namespace custom-mediator.Infrastructure.Request;
+
+public interface IRequestBus
+{
+    Task Handle(IRequest request, CancellationToken cancellationToken = default);
+
+    Task<TResponse> Handle<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public class RequestBus(IServiceProvider serviceProvider) : IRequestBus
+{
+    static readonly ConcurrentDictionary<Type, object> RequestHandlerWrappers = new();
+
+    public async Task<TResponse> Handle<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var requestType = request.GetType();
+        var responseType = typeof(TResponse);
+        var wrapperType = typeof(RequestHandlerWrapper<,>).MakeGenericType(requestType, responseType);
+        var handler = GetOrCreateInstance<IRequestHandlerWrapper<TResponse>>(wrapperType);
+
+        return await handler.Handle(request, serviceProvider, cancellationToken);
+    }
+
+    public async Task Handle(IRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var requestType = request.GetType();
+        var wrapperType = typeof(RequestHandlerWrapper<>).MakeGenericType(requestType);
+        var handler = GetOrCreateInstance<IRequestHandlerWrapper>(wrapperType);
+
+        await handler.Handle(request, serviceProvider, cancellationToken);
+    }
+
+    static T GetOrCreateInstance<T>(Type type) =>
+        (T)
+            RequestHandlerWrappers.GetOrAdd(
+                type,
+                _ =>
+                {
+                    var instance =
+                        Activator.CreateInstance(type)
+                        ?? throw new InvalidOperationException(
+                            $"Failed to create an instance of the request handler wrapper: {typeof(T)}"
+                        );
+
+                    return (T)instance;
+                }
+            );
+}
+-----------------------------------------------------------------------------------------------------------------------
+using custom-mediator.Infrastructure.Request;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+
+namespace custom-mediator.UnitTests.Infrastructure.Request;
+
+public record GetSomething(int Id) : IRequest<string>;
+
+public record SaveSomething(object DataToSave) : IRequest;
+
+public class RequestBusTest
+{
+    const string Response = "Awesome response";
+    public readonly GetSomething GetSomethingById = new(1);
+    public readonly SaveSomething SaveSomething = new(new { });
+
+    [Fact]
+    public async Task Should_Handle_Request_To_Corresponding_Handler_Which_Should_Handle_Request()
+    {
+        var handler = GetFakeQueryHandler();
+        var requestBus = GetFakeQueryRequestBus(handler);
+
+        var result = await requestBus.Handle(GetSomethingById);
+
+        await handler.Received(1).Handle(GetSomethingById, default);
+        result.Should().Be(Response);
+    }
+
+    [Fact]
+    public void Should_Throw_Exception_If_No_Handler_Was_Found_For_A_Request()
+    {
+        var requestBus = GetFakeQueryRequestBus();
+
+        Func<Task> act = () => requestBus.Handle(GetSomethingById);
+
+        act.Should().ThrowExactlyAsync<InvalidOperationException>()
+            .WithMessage($"No handler registered for the request: GetSomething.");
+    }
+
+    [Fact]
+    public async Task Should_Handle_Command_To_Corresponding_Handler_When_Specific_Handler_Is_Registered()
+    {
+        var handler = GetFakeCommandHandler();
+        var requestBus = GetFakeCommandRequestBus(handler);
+
+        await requestBus.Handle(SaveSomething);
+        await handler.Received(1).Handle(SaveSomething, default);
+    }
+
+    [Fact]
+    public void Should_Throw_Exception_If_No_Handler_Found_For_A_Command_Matching_Specific_Type()
+    {
+        var requestBus = GetFakeCommandRequestBus();
+
+        Func<Task> act = () => requestBus.Handle(SaveSomething);
+
+        act.Should().ThrowExactlyAsync<InvalidOperationException>()
+            .WithMessage($"No handler registered for the request: SaveSomething.");
+    }
+
+    [Fact]
+    public async Task Should_Use_Cached_Wrapper_Instead_Of_Creating_Instance_Per_Call()
+    {
+        var request1 = new GetSomething(1);
+        var request2 = new GetSomething(2);
+
+        var handler = Substitute.For<IRequestHandler<GetSomething, string>>();
+        handler.Handle(request1, Arg.Any<CancellationToken>()).Returns(Task.FromResult("Result 1"));
+        handler.Handle(request2, Arg.Any<CancellationToken>()).Returns(Task.FromResult("Result 2"));
+
+        var services = new ServiceCollection();
+        services.AddTransient(sp => handler);
+
+        var serviceProvider = services.BuildServiceProvider();
+        var requestBus = new RequestBus(serviceProvider);
+
+        var result1 = await requestBus.Handle(request1, CancellationToken.None);
+        var result2 = await requestBus.Handle(request2, CancellationToken.None);
+
+        await handler.Received(1).Handle(request1, Arg.Any<CancellationToken>());
+        await handler.Received(1).Handle(request2, Arg.Any<CancellationToken>());
+
+        result1.Should().Be("Result 1");
+        result2.Should().Be("Result 2");
+    }
+
+    static IRequestHandler<GetSomething, string> GetFakeQueryHandler()
+    {
+        var handler = Substitute.For<IRequestHandler<GetSomething, string>>();
+        handler.Handle(Arg.Any<GetSomething>(), Arg.Any<CancellationToken>()).Returns(Response);
+
+        return handler;
+    }
+
+    IRequestHandler<SaveSomething> GetFakeCommandHandler()
+    {
+        var handler = Substitute.For<IRequestHandler<SaveSomething>>();
+        handler.Handle(SaveSomething, default).Returns(Task.CompletedTask);
+
+        return handler;
+    }
+
+    static RequestBus GetFakeQueryRequestBus(IRequestHandler<GetSomething, string>? handler = null)
+    {
+        var serviceCollection = new ServiceCollection();
+
+        if (handler != null)
+            serviceCollection.AddTransient(sp => handler);
+
+        return new(serviceCollection.BuildServiceProvider());
+    }
+
+    static RequestBus GetFakeCommandRequestBus(IRequestHandler<SaveSomething>? handler = null)
+    {
+        var serviceCollection = new ServiceCollection();
+
+        if (handler != null)
+            serviceCollection.AddTransient(sp => handler);
+
+        return new(serviceCollection.BuildServiceProvider());
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
