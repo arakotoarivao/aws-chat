@@ -1,0 +1,828 @@
+public class IntegrationTestBase : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureServices(async services =>
+        {
+            RemoveDevelopmentServices(services);
+            RegisterIntegrationTestDependencies(services);
+
+            await ValidateSetupAndSeedDatabase(services.BuildServiceProvider());
+        });
+    }
+
+    static void RemoveDevelopmentServices(IServiceCollection services)
+    {
+        services.RemoveServiceDescriptor<IdbContextOptionsConfiguration<db>>();
+    }
+
+    static void RegisterIntegrationTestDependencies(IServiceCollection services)
+    {
+        AdddbContext<db>(services, "xxxxxxx");
+        AddSeeders(services);
+        AddResetdb(services);
+        AddAuthServices(services);
+
+        services.AddScoped<IntegrationTestSetupValidator>();
+    }
+
+    static async Task ValidateSetupAndSeedDatabase(IServiceProvider provider)
+    {
+        using var scope = provider.CreateScope();
+        var serviceProvider = scope.ServiceProvider;
+
+        var validator = serviceProvider.GetRequiredService<IntegrationTestSetupValidator>();
+        var db = serviceProvider.GetRequiredService<dbContext>();
+
+        validator.ValidateDatabaseProvider(db);
+
+        db.Database.EnsureCreated();
+
+        await ResetdbAndSeedAll(serviceProvider);
+    }
+
+    static void AddSeeders(IServiceCollection services)
+    {
+        services.AddScoped<ISeeder, Seeder>();
+    }
+
+    static void AddResetdb(IServiceCollection services) => services.AddScoped<Resetdb>();
+
+    static void AdddbContext<T>(IServiceCollection services, string dbName)
+        where T : dbContext
+    {
+        services.AdddbContext<T>(
+            options =>
+                options
+                    .UseInMemoryDatabase(dbName)
+                    .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+        );
+    }
+
+    static void AddAuthServices(IServiceCollection services)
+    {
+        services
+            .AddAuthentication("Test")
+            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", options => { });
+    }
+
+    static async Task ResetdbAndSeedAll(IServiceProvider serviceProvider)
+    {
+        var dataInitializer = serviceProvider.GetRequiredService<Resetdb>();
+        await dataInitializer.ResetdbAndSeedAll();
+    }
+}
+
+public static class IntegrationTestBaseExtension
+{
+    public static void RemoveServiceDescriptor<T>(this IServiceCollection services)
+    {
+        var serviceDescriptor = services.Single(d => d.ServiceType == typeof(T));
+        services.Remove(serviceDescriptor);
+    }
+}
+
+[CollectionDefinition(TestCollection.IntegrationTests)]
+public class DatabaseCollection : ICollectionFixture<IntegrationTestBase>;
+
+---------------------------------------------------------------------------------------------------------------------------------------
+
+file class TestWebHostEnvironment : IWebHostEnvironment
+{
+    public string ApplicationName { get; set; } = "TestApplication";
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    public string ContentRootPath { get; set; } = string.Empty;
+    public string EnvironmentName { get; set; } = "Development";
+    public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+    public string WebRootPath { get; set; } = string.Empty;
+}
+
+file class FakedbContext(DbContextOptions<dbContext> options) : dbContext(options)
+{
+    public override DatabaseFacade Database => null!;
+}
+
+[Collection(TestCollection.IntegrationTests)]
+public class IntegrationTestBaseTests(IntegrationTestBase factory)
+{
+    [Fact]
+    public void All_Seeders_Should_Be_Registered_Correctly()
+    {
+        var expectedSeederTypes = new List<Type>
+        {
+            typeof(Seeder),
+        };
+
+        using var scope = factory.Services.CreateScope();
+        var registeredSeeders = scope.ServiceProvider.GetServices<ISeeder>();
+
+        registeredSeeders.Should().NotBeNullOrEmpty();
+        registeredSeeders.Should().HaveCount(expectedSeederTypes.Count);
+
+        foreach (var expectedType in expectedSeederTypes)
+            registeredSeeders.Should().ContainSingle(s => s.GetType() == expectedType);
+    }
+
+    [Fact]
+    public void Reset_Db_Should_Be_Registered_Correctly()
+    {
+        using var scope = factory.Services.CreateScope();
+        var resetDbService = scope.ServiceProvider.GetService<ResetDb>();
+
+        resetDbService.Should().NotBeNull();
+        resetDbService.Should().BeOfType<ResetDb>();
+    }
+
+    [Fact]
+    public void Should_Not_Throw_If_xxxx_Database_Provider_Is_In_Memory() =>
+        Should_Not_Throw_If_Database_Provider_Is_In_Memory<dbContext>();
+
+    [Fact]
+    public void Should_Throw_Exception_If_xxxx_Database_Provider_Is_Not_In_Memory() =>
+        Should_Throw_Exception_If_Database_Provider_Is_Not_In_Memory<dbContext>();
+
+    [Fact]
+    public void Should_Throw_Exception_If_xxxx_Database_Property_Is_Null() =>
+        Should_Throw_Exception_If_Database_Property_Is_Null<dbContext>();
+
+    [Fact]
+    public void Integration_Test_Setup_Validator_Should_Be_Registered()
+    {
+        using var scope = factory.Services.CreateScope();
+        var registeredSeeders = scope.ServiceProvider.GetServices<IntegrationTestSetupValidator>();
+
+        registeredSeeders.Should().NotBeNullOrEmpty();
+        registeredSeeders.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Remove_Service_Descriptor_Should_Remove_Registered_Service()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IDisposable, DummyDisposable>();
+
+        var predicate = new Func<ServiceDescriptor, bool>(
+            x => x.ServiceType == typeof(IDisposable)
+        );
+
+        services.Count(predicate).Should().Be(1);
+        services.RemoveServiceDescriptor<IDisposable>();
+
+        services.Where(predicate).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Remove_Service_Descriptor_Throws_If_Service_Not_Registered()
+    {
+        var services = new ServiceCollection();
+
+        var fn = () => services.RemoveServiceDescriptor<IDisposable>();
+        fn.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Integration_Test_Should_Use_Test_xx_Service_For_Auth()
+    {
+        using var scope = factory.Services.CreateScope();
+        var currentxxService = scope.ServiceProvider.GetRequiredService<ICurrentxx>();
+
+        currentxxService.Should().NotBeNull();
+        currentxxService.Should().BeOfType<TestCurrentxxService>();
+    }
+
+    class DummyDisposable : IDisposable
+    {
+        public void Dispose() { }
+    }
+
+    static IntegrationTestSetupValidator GetValidator()
+    {
+        var environment = new TestWebHostEnvironment();
+        return new IntegrationTestSetupValidator(environment);
+    }
+
+    static void Should_Not_Throw_If_Database_Provider_Is_In_Memory<T>()
+        where T : DbContext
+    {
+        var validator = GetValidator();
+        var options = new DbContextOptionsBuilder<T>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+
+        using var db = (T)Activator.CreateInstance(typeof(T), options)!;
+        Action action = () => validator.ValidateDatabaseProvider(db);
+
+        action.Should().NotThrow();
+    }
+
+    static void Should_Throw_Exception_If_Database_Property_Is_Null<T>()
+        where T : DbContext
+    {
+        var validator = GetValidator();
+        var options = new DbContextOptionsBuilder<T>()
+            .UseSqlServer(
+                "Server=.;Database=FakeTestDbForGuard;Trusted_Connection=True;TrustServerCertificate=True;"
+            )
+            .Options;
+
+        using var db = (T)Activator.CreateInstance(typeof(T), options)!;
+        Action action = () => validator.ValidateDatabaseProvider(db);
+
+        action
+            .Should()
+            .Throw<InvalidOperationException>()
+            .Where(x => x.Message.Contains("must use the EF Core In-Memory database provider"));
+    }
+
+    static void Should_Throw_Exception_If_Database_Provider_Is_Not_In_Memory<T>()
+        where T : DbContext
+    {
+        var validator = GetValidator();
+        var options = new DbContextOptionsBuilder<T>()
+            .UseSqlServer(
+                "Server=.;Database=FakeTestDbForGuard;Trusted_Connection=True;TrustServerCertificate=True;"
+            )
+            .Options;
+
+        using var db = (T)Activator.CreateInstance(typeof(T), options)!;
+        Action action = () => validator.ValidateDatabaseProvider(db);
+
+        action
+            .Should()
+            .Throw<InvalidOperationException>()
+            .Where(x => x.Message.Contains("must use the EF Core In-Memory database provider"));
+    }
+}
+------------------------------------------------------------------------------------------------
+public class IntegrationTestSetupValidator(IWebHostEnvironment hostingEnvironment)
+{
+    public void ValidateDatabaseProvider(DbContext db)
+    {
+        var actualProviderName = db.Database?.ProviderName ?? "Unknown";
+        var efCoreInMemoryProvider = "Microsoft.EntityFrameworkCore.InMemory";
+
+        if (!actualProviderName.Equals(efCoreInMemoryProvider, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Integration tests ERROR: Integration tests in the '{hostingEnvironment.EnvironmentName}' environment must use the EF Core In-Memory database provider. "
+                    + $"Actual provider: '{actualProviderName}'."
+            );
+        }
+    }
+}
+---------------------------------------------------------------------------------------------------
+public class TestCollection
+{
+    public const string IntegrationTests = "IntegrationTests";
+}
+---------------------------------------------------------------------------------------------------
+[Collection(TestCollection.IntegrationTests)]
+public abstract class RestTest : IAsyncLifetime
+{
+    protected readonly HttpClient _httpClient;
+    protected readonly dbContext _db;
+    protected readonly ResetDb _resetDb;
+
+    readonly IServiceScope _scope;
+
+    protected RestTest(IntegrationTestBase fixture)
+    {
+        _httpClient = fixture.CreateClient();
+
+        _scope = fixture.Services.CreateScope();
+        _db = Resolve<dbContext>();
+        _resetDb = Resolve<ResetDb>();
+    }
+
+    public async Task InitializeAsync()
+    {
+        await Setup();
+    }
+
+    public async Task<T> Get<T>(string url) => await _httpClient!.Get<T>(url);
+
+    public Task<HttpResponseMessage> Get(string url) => _httpClient!.Get(url);
+
+    public async Task<T> Post<T>(string url, object parameter) =>
+        await _httpClient!.Post<T>(url, parameter);
+
+    public async Task<HttpResponseMessage> Post(string url, object parameter) =>
+        await _httpClient!.Post(url, parameter);
+
+    public async Task<HttpResponseMessage> Put(string url, object parameter) =>
+        await _httpClient!.Put(url, parameter);
+
+    public async Task<HttpResponseMessage> Patch(string url, object parameter) =>
+        await _httpClient!.Patch(url, parameter);
+
+    public async Task<HttpResponseMessage> Delete(string url) => await _httpClient!.Delete(url);
+
+    protected virtual async Task Setup() => await Task.CompletedTask;
+
+    protected virtual async Task TearDown() => await Task.CompletedTask;
+
+    protected T Resolve<T>()
+        where T : class => _scope.ServiceProvider.GetRequiredService<T>();
+
+    internal IMessageBus GetMessageBus() => Resolve<IMessageBus>();
+
+    async Task IAsyncLifetime.DisposeAsync()
+    {
+        await TearDown();
+        _scope.Dispose();
+    }
+}
+
+---------------------------------------------------------------------------------------------------
+public class UrlHelper
+{
+    const string DateFormat = "yyyy-MM-dd";
+
+    public static string ToQueryParameters(string baseUrl, object? parametersObject)
+    {
+        if (parametersObject == null)
+            return baseUrl;
+
+        var currentUrl = baseUrl;
+        var properties = parametersObject
+            .GetType()
+            .GetProperties(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
+            );
+
+        var propertiesUsedForPath = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var property in properties)
+        {
+            var propertyValue = property.GetValue(parametersObject);
+            if (propertyValue == null)
+                continue;
+
+            var placeHolderPattern = $"{{{Regex.Escape(property.Name)}}}";
+            var newUrl = Regex.Replace(
+                currentUrl,
+                placeHolderPattern,
+                WebUtility.UrlEncode(ConvertValueToString(propertyValue)),
+                RegexOptions.IgnoreCase
+            );
+
+            if (newUrl != currentUrl)
+            {
+                propertiesUsedForPath.Add(property.Name);
+                currentUrl = newUrl;
+            }
+        }
+
+        var queryParamList = new List<string>();
+        foreach (var property in properties)
+        {
+            if (propertiesUsedForPath.Contains(property.Name))
+                continue;
+
+            var value = property.GetValue(parametersObject);
+            if (value == null)
+                continue;
+
+            if (value is IEnumerable collection && value is not string)
+            {
+                foreach (var item in collection)
+                {
+                    if (item == null)
+                        continue;
+
+                    queryParamList.Add(GetEncodedValueWithKey(property.Name, item));
+                }
+            }
+            else
+                queryParamList.Add(GetEncodedValueWithKey(property.Name, value));
+        }
+
+        if (queryParamList.Count == 0)
+            return currentUrl;
+
+        var flattenUrl = string.Join("&", queryParamList);
+
+        return currentUrl.Contains('?')
+            ? $"{currentUrl}&{flattenUrl}"
+            : $"{currentUrl}?{flattenUrl}";
+    }
+
+    static string GetEncodedValueWithKey(string propertyName, object value) =>
+        $"{propertyName}={WebUtility.UrlEncode(ConvertValueToString(value))}";
+
+    static string ConvertValueToString(object value)
+    {
+        if (value is null)
+            return string.Empty;
+
+        if (value is bool boolValue)
+            return boolValue.ToString().ToLowerInvariant();
+
+        if (value is DateTime dt)
+            return dt.ToString(DateFormat);
+
+        if (value is DateTimeOffset dto)
+            return dto.ToUniversalTime().ToString(DateFormat);
+
+        return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)
+            ?? string.Empty;
+    }
+}
+-----------------------------------------------------------------------------------------------------
+public class UrlHelperTests
+{
+    const string BaseUrl = "http://api.com/api";
+
+    [Fact]
+    public void Should_Return_Base_Url_When_Parameters_Object_Is_Null() =>
+        ActAndAssert(BaseUrl, null, expectedUrl: BaseUrl);
+
+    [Fact]
+    public void Should_Return_Base_Url_When_Parameters_Object_Is_Empty()
+    {
+        var parameters = new { };
+        ActAndAssert(BaseUrl, parameters, expectedUrl: BaseUrl);
+    }
+
+    [Fact]
+    public void Should_Replace_Path_Placeholders_And_Encode_Values()
+    {
+        var baseUrl = "/api/items/{id}/details/{name}";
+        var parameters = new { id = 123, name = "test xx" };
+        var expectedUrl = $"/api/items/123/details/{WebUtility.UrlEncode("test xx")}";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Replace_Path_Placeholders_Case_Insensitively()
+    {
+        var baseUrl = "/api/items/{ID}/data/{Value}";
+        var parameters = new { id = 123, value = "my data" };
+        var expectedUrl = $"/api/items/123/data/{WebUtility.UrlEncode("my data")}";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Append_Query_Parameters_And_Encode_Values()
+    {
+        var parameters = new { query = "a test", count = 10 };
+        var expectedUrl = $"http://api.com/api?query={WebUtility.UrlEncode("a test")}&count=10";
+        ActAndAssert(BaseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Handle_Mixed_Path_And_Query_Parameters()
+    {
+        var baseUrl = "/api/items/{id}";
+        var parameters = new
+        {
+            id = 456,
+            filter = "active items",
+            page = 1
+        };
+        var expectedUrl = $"/api/items/456?filter={WebUtility.UrlEncode("active items")}&page=1";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Ignore_Null_Property_Values_For_Path_And_Query()
+    {
+        var baseUrl = "/api/items/{id}/product/{productId}";
+        var parameters = new
+        {
+            id = (int?)null,
+            name = "test",
+            category = (string?)null,
+            productId = 123
+        };
+        var expectedUrl = "/api/items/{id}/product/123?name=test";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Return_Base_Url_When_All_Properties_Are_Null()
+    {
+        var parameters = new { Prop1 = (string?)null, Prop2 = (int?)null };
+        ActAndAssert(BaseUrl, parameters, expectedUrl: BaseUrl);
+    }
+
+    [Fact]
+    public void Should_Format_And_Encode_Date_Time_Property_As_Query()
+    {
+        var baseUrl = "/api";
+        var date = new DateTime(2023, 1, 15, 10, 30, 0, DateTimeKind.Utc);
+        var parameters = new { searchDate = date };
+        var expectedUrl = $"/api?searchDate=2023-01-15";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Format_And_Encode_DateTime_Offset_Property_As_Query_In_Utc()
+    {
+        var baseUrl = "/api";
+        var date = new DateTimeOffset(2023, 1, 15, 10, 0, 0, TimeSpan.FromHours(2));
+        var parameters = new { eventTime = date };
+        var expectedUrl = $"/api?eventTime=2023-01-15";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Handle_DateTime_Offset_Crossing_Day_Boundary_On_Utc_Conversion()
+    {
+        var baseUrl = "/api";
+        var date = new DateTimeOffset(2023, 1, 15, 1, 0, 0, TimeSpan.FromHours(2));
+        var parameters = new { eventTime = date };
+        var expectedUrl = $"/api?eventTime=2023-01-14";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Format_And_Encode_DateTime_Property_As_Path()
+    {
+        var baseUrl = "/api/archive/{date}";
+        var date = new DateTime(2023, 3, 20, 0, 0, 0, DateTimeKind.Utc);
+        var parameters = new { date };
+        var expectedUrl = "/api/archive/2023-03-20";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Format_Bool_Property_As_Lowercase_Query()
+    {
+        var baseUrl = "/api";
+        var parameters = new { isActive = true, isEnabled = false };
+        var expectedUrl = "/api?isActive=true&isEnabled=false";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Add_Multiple_Parameters_For_IEnumerable_Property_And_Encode_Values()
+    {
+        var baseUrl = "/api";
+        var parameters = new { ids = new List<int> { 1, 2, 3 }, names = new[] { "a b", "c&d" } };
+        var expectedUrl =
+            $"/api?ids=1&ids=2&ids=3&names={WebUtility.UrlEncode("a b")}&names={WebUtility.UrlEncode("c&d")}";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Not_Treat_String_Property_As_IEnumerable_Char()
+    {
+        var baseUrl = "/api";
+        var parameters = new { text = "hello" };
+        var expectedUrl = "/api?text=hello";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Skip_Null_Items_In_IEnumerable_Property()
+    {
+        var baseUrl = "/api";
+        var parameters = new { values = new List<string?> { "one", null, "three" } };
+        var expectedUrl = "/api?values=one&values=three";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Return_Url_Without_Question_Mark_When_No_Query_Parameters_After_Path_Processing()
+    {
+        var baseUrl = "/api/items/{id}";
+        var parameters = new { id = 789 };
+        var expectedUrl = "/api/items/789";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Leave_Path_Placeholder_When_Parameter_Not_Present_In_Object()
+    {
+        var baseUrl = "/api/items/{id}/details/{name}";
+        var parameters = new { id = 123, category = "books" };
+        var expectedUrl = "/api/items/123/details/{name}?category=books";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Append_With_Ampersand_When_Base_Url_Already_Has_Query()
+    {
+        var baseUrl = "http://api.com/api?existing=true";
+        var parameters = new { newParam = "value" };
+        var expectedUrl = $"{baseUrl}&newParam=value";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Use_Invariant_Culture_And_Encode_Decimal_Property()
+    {
+        var baseUrl = "/api";
+        var parameters = new { amount = 123.45m, currency = "USD EUR" };
+        var expectedUrl = $"/api?amount=123.45&currency={WebUtility.UrlEncode("USD EUR")}";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Format_IEnumerable_Of_DateTime_Correctly()
+    {
+        var baseUrl = "/api";
+        var parameters = new
+        {
+            dates = new List<DateTime> { new(2023, 1, 1), new(2023, 1, 2, 10, 30, 0) }
+        };
+        var expectedUrl = "/api?dates=2023-01-01&dates=2023-01-02";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    [Fact]
+    public void Should_Encode_Path_Parameter_Value_Needing_Encoding()
+    {
+        var baseUrl = "/api/resource/{value}";
+        var parameters = new { value = "a/b c" };
+        var expectedUrl = $"/api/resource/{WebUtility.UrlEncode("a/b c")}";
+        ActAndAssert(baseUrl, parameters, expectedUrl);
+    }
+
+    static void ActAndAssert(string baseUrl, object? parameters, string expectedUrl)
+    {
+        var result = UrlHelper.ToQueryParameters(baseUrl, parameters);
+        result.Should().Be(expectedUrl);
+    }
+}
+--------------------------------------------------------------------------------------------------------------
+public static class HttpClientExtension
+{
+    static readonly JsonSerializerOptions JsonOptions =
+        new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+    public static async Task<T> Get<T>(this HttpClient httpClient, string url)
+    {
+        var content = await GetContent(httpClient, url);
+        return JsonSerializer.Deserialize<T>(content, JsonOptions)!;
+    }
+
+    public static async Task<HttpResponseMessage> Get(this HttpClient httpClient, string url)
+    {
+        var request = CreateRequestMessage(url, HttpMethod.Get, null);
+        return await SendAndThrowIfErrorAsync(httpClient, request);
+    }
+
+    public static async Task<T> Post<T>(this HttpClient httpClient, string url, object parameter)
+    {
+        var request = CreateRequestMessage(url, HttpMethod.Post, parameter);
+        var response = await SendAndThrowIfErrorAsync(httpClient, request);
+        var content = await ReadContent(response);
+        return JsonSerializer.Deserialize<T>(content, JsonOptions)!;
+    }
+
+    public static async Task<(HttpStatusCode StatusCode, string? Content)> GetContentWithStatusCode(
+        this HttpClient httpClient,
+        string url
+    )
+    {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentException.ThrowIfNullOrEmpty(url);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead
+        );
+
+        if (response.Content != null)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync();
+            return (response.StatusCode, responseBody);
+        }
+
+        return (response.StatusCode, null);
+    }
+
+    public static async Task<HttpResponseMessage> Post(
+        this HttpClient httpClient,
+        string url,
+        object parameter
+    )
+    {
+        var request = CreateRequestMessage(url, HttpMethod.Post, parameter);
+        return await SendAndThrowIfErrorAsync(httpClient, request);
+    }
+
+    public static async Task<HttpResponseMessage> Put(
+        this HttpClient httpClient,
+        string url,
+        object parameter
+    )
+    {
+        var request = CreateRequestMessage(url, HttpMethod.Put, parameter);
+        return await SendAndThrowIfErrorAsync(httpClient, request);
+    }
+
+    public static async Task<HttpResponseMessage> Patch(
+        this HttpClient httpClient,
+        string url,
+        object parameter
+    )
+    {
+        var request = CreateRequestMessage(url, HttpMethod.Patch, parameter);
+        return await httpClient.SendAsync(request);
+    }
+
+    public static async Task<HttpResponseMessage> Delete(this HttpClient httpClient, string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, url);
+        return await SendAndThrowIfErrorAsync(httpClient, request);
+    }
+
+    static HttpRequestMessage CreateRequestMessage(string url, HttpMethod method, object? parameter)
+    {
+        var request = new HttpRequestMessage(method, url);
+        if (parameter != null)
+            request.Content = CreateJsonContent(parameter);
+
+        return request;
+    }
+
+    static async Task<string> GetContent(HttpClient httpClient, string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        return await ReadContent(await SendAndThrowIfErrorAsync(httpClient, request));
+    }
+
+    static async Task<string> ReadContent(HttpResponseMessage response) =>
+        await response.Content.ReadAsStringAsync();
+
+    static async Task<HttpResponseMessage> SendAndThrowIfErrorAsync(
+        HttpClient httpClient,
+        HttpRequestMessage httpRequest
+    )
+    {
+        var response = await httpClient.SendAsync(httpRequest);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException(
+                $"Request failed with status code {response.StatusCode}. Response: {errorContent}",
+                null,
+                response.StatusCode
+            );
+        }
+
+        return response;
+    }
+
+    static StringContent CreateJsonContent(object obj) =>
+        new(JsonSerializer.Serialize(obj, JsonOptions), Encoding.UTF8, "application/json");
+}
+----------------------------------------------------------------------------------------------------------
+public class ResetDb(IEnumerable<ISeeder> seeders, dbContext db)
+{
+    public async Task ResetDbAndSeedAll()
+    {
+        await ClearAll();
+        await SeedAll();
+    }
+
+    public async Task SeedAll()
+    {
+        foreach (var seeder in seeders)
+            await seeder.SeedAsync();
+    }
+
+   
+    public async Task Clear()
+    {
+        await RemoveAll(db.XXXXXX);
+
+        await db.SaveChangesAsync();
+        await ExecuteSeedOfType<Seeder>();
+    }
+
+
+
+    public async Task RemoveAll<TEntity>(DbSet<TEntity> dbSet)
+        where TEntity : class
+    {
+        var entities = await dbSet.ToListAsync();
+        if (entities.Count != 0)
+            dbSet.RemoveRange(entities);
+    }
+
+    async Task ExecuteSeedOfType<T>()
+        where T : ISeeder
+    {
+        var seeder = seeders.OfType<T>().FirstOrDefault();
+        if (seeder != null)
+            await seeder.SeedAsync();
+    }
+
+    async Task ClearAll()
+    {
+        await RemoveAll(db.xx);
+        await RemoveAll(db.xx);
+
+        await db.SaveChangesAsync();
+    }
+}
